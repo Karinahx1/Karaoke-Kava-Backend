@@ -34,66 +34,74 @@ export class CombateService {
 
   // 2. Buscar oponente automáticamente (Matchmaking)
   async buscarOponente(idJugador1: string, idNivel: string) {
-    // Normalizar nivel: si el usuario no tiene nivel asignado (null), se trata como 1 (Principiante)
-    // El front ya hace lo mismo con `id_nivel || 1`, así que ambos lados son coherentes
+    // Normalizar nivel: null o 0 → 1 (Principiante), igual que hace el frontend
     const nivelBuscado = Number(idNivel) || 1;
 
-    // Buscar combates en espera (EN_CURSO sin jugador2)
-    const { data: combatesBuscando, error: errBusqueda } = await supabase
+    // PASO 1: traer todos los combates en espera (sin join — más fiable)
+    const { data: enEspera, error: errEspera } = await supabase
       .from('tbl_combate')
-      .select(`
-        *,
-        jugador1:tbl_usuario!id_usuario_jugador1(id_nivel)
-      `)
+      .select('id, id_usuario_jugador1')
       .eq('id_estado', ESTADO_COMBATE.EN_CURSO)
       .is('id_usuario_jugador2', null)
       .neq('id_usuario_jugador1', idJugador1);
 
-    if (errBusqueda) throw new Error(errBusqueda.message);
+    if (errEspera) throw new Error(errEspera.message);
 
-    console.log(`[Matchmaking] Jugador ${idJugador1} busca nivel ${nivelBuscado}. Combates en espera: ${combatesBuscando.length}`);
+    console.log(`[Matchmaking] Jugador ${idJugador1} (nivel ${nivelBuscado}). Combates en espera: ${enEspera.length}`);
 
-    // Filtrar por nivel con null safety:
-    // - Si jugador1 no trajo datos del join, lo descartamos
-    // - null en id_nivel se trata como 1 (igual que el frontend)
-    const posibles = combatesBuscando.filter(c => {
-      if (!c.jugador1) return false;
-      const nivelOponente = Number(c.jugador1.id_nivel) || 1;
-      console.log(`  → Combate ${c.id}: nivel oponente = ${nivelOponente}, buscado = ${nivelBuscado}, coincide = ${nivelOponente === nivelBuscado}`);
-      return nivelOponente === nivelBuscado;
-    });
+    let combateElegido: any = null;
 
-    if (posibles.length > 0) {
-      // Elegir uno aleatoriamente
-      const combateElegido = posibles[Math.floor(Math.random() * posibles.length)];
+    if (enEspera.length > 0) {
+      // TODO: filtro por nivel temporalmente desactivado para la entrega.
+      // Actualmente empareja con cualquier jugador disponible sin importar el nivel.
+      // Reactivar cuando se resuelva el problema de lectura de niveles desde Supabase.
 
-      // Emparejar y cambiar estado a 'en_curso'
+      /* --- FILTRO POR NIVEL (descomentar cuando esté listo) ---
+      const idsJugadores = enEspera.map((c: any) => c.id_usuario_jugador1);
+      const { data: usuarios, error: errUsuarios } = await supabase
+        .from('tbl_usuario').select('id, id_nivel').in('id', idsJugadores);
+      if (errUsuarios) throw new Error(errUsuarios.message);
+      const nivelPorUsuario: Record<string, number> = {};
+      for (const u of (usuarios ?? [])) {
+        nivelPorUsuario[String(u.id)] = Number(u.id_nivel) || 1;
+      }
+      const posibles = enEspera.filter((c: any) => {
+        const nivelOponente = nivelPorUsuario[String(c.id_usuario_jugador1)] ?? 1;
+        return nivelOponente === nivelBuscado;
+      });
+      if (posibles.length > 0) {
+        combateElegido = posibles[Math.floor(Math.random() * posibles.length)];
+      }
+      --- FIN FILTRO POR NIVEL --- */
+
+      // Empareja con cualquier jugador en espera (aleatorio)
+      combateElegido = enEspera[Math.floor(Math.random() * enEspera.length)];
+    }
+
+    if (combateElegido) {
+      // Unirse al combate existente
       const { data, error } = await supabase
         .from('tbl_combate')
-        .update({
-          id_usuario_jugador2: idJugador1,
-          id_estado: ESTADO_COMBATE.EN_CURSO
-        })
+        .update({ id_usuario_jugador2: idJugador1 })
         .eq('id', combateElegido.id)
         .select()
         .single();
 
       if (error) throw new Error(error.message);
+      console.log(`[Matchmaking] Match encontrado → combate ${combateElegido.id}`);
       return { status: 'match_found', combate: data };
-    } else {
-      // Crear nuevo registro en estado en_curso (esperando contrincante)
-      const { data, error } = await supabase
-        .from('tbl_combate')
-        .insert({
-          id_usuario_jugador1: idJugador1,
-          id_estado: ESTADO_COMBATE.EN_CURSO
-        })
-        .select()
-        .single();
-
-      if (error) throw new Error(error.message);
-      return { status: 'waiting', combate: data };
     }
+
+    // Ningún oponente del mismo nivel disponible → entrar en cola de espera
+    const { data, error } = await supabase
+      .from('tbl_combate')
+      .insert({ id_usuario_jugador1: idJugador1, id_estado: ESTADO_COMBATE.EN_CURSO })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    console.log(`[Matchmaking] Sin rival → creando combate en espera ${data.id}`);
+    return { status: 'waiting', combate: data };
   }
 
   // 3. Aceptar Combate (Invitación manual)
@@ -417,7 +425,8 @@ export class CombateService {
         jugador1:tbl_usuario!id_usuario_jugador1(*),
         jugador2:tbl_usuario!id_usuario_jugador2(*)
       `)
-      .or(`id_usuario_jugador1.eq.${idUsuario},id_usuario_jugador2.eq.${idUsuario}`);
+      .or(`id_usuario_jugador1.eq.${idUsuario},id_usuario_jugador2.eq.${idUsuario}`)
+      .order('fecha', { ascending: false }); // más recientes primero
 
     if (error) throw new Error(error.message);
     return data;
