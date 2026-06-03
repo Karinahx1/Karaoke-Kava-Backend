@@ -57,6 +57,23 @@ export class CombateController {
     }
   }
 
+  async abandonarCombate(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { idAbandonador } = req.body;
+      if (!idAbandonador) {
+        return res.status(400).json({ ok: false, message: 'Falta el id del jugador que abandona.' });
+      }
+      const combate = await combateService.abandonarCombate(id as string, String(idAbandonador));
+      return res.status(200).json({ ok: true, data: combate });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Error al registrar abandono'
+      });
+    }
+  }
+
   async cancelarBusqueda(req: Request, res: Response) {
     try {
       const { id } = req.params;

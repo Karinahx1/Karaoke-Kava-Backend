@@ -109,7 +109,41 @@ export class CombateService {
     return data;
   }
 
-  // 3b. Cancelar búsqueda de matchmaking
+  // 3b. Abandonar combate — el que abandona pierde, el otro gana automáticamente
+  async abandonarCombate(idCombate: string, idAbandonador: string) {
+    // Traer el combate para saber quién es el oponente
+    const { data: combate, error } = await supabase
+      .from('tbl_combate')
+      .select('id, id_usuario_jugador1, id_usuario_jugador2, id_estado')
+      .eq('id', idCombate)
+      .single();
+
+    if (error || !combate) throw new Error('Combate no encontrado.');
+    if (combate.id_estado === ESTADO_COMBATE.FINALIZADO) throw new Error('Este combate ya terminó.');
+
+    // El ganador es el que NO abandonó
+    const idGanador =
+      String(combate.id_usuario_jugador1) === String(idAbandonador)
+        ? combate.id_usuario_jugador2
+        : combate.id_usuario_jugador1;
+
+    if (!idGanador) throw new Error('No hay oponente registrado en este combate.');
+
+    const { data: actualizado, error: errUpdate } = await supabase
+      .from('tbl_combate')
+      .update({
+        id_usuario_ganador: idGanador,
+        id_estado: ESTADO_COMBATE.FINALIZADO
+      })
+      .eq('id', idCombate)
+      .select()
+      .single();
+
+    if (errUpdate) throw new Error(errUpdate.message);
+    return actualizado;
+  }
+
+  // 3c. Cancelar búsqueda de matchmaking
   async cancelarBusqueda(idCombate: string) {
     // Solo se puede cancelar si todavía no hay jugador2 (aún en cola de espera)
     // Esto evita cancelar accidentalmente un combate que ya empezó

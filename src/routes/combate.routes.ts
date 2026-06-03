@@ -11,6 +11,7 @@ router.post('/buscar', combateController.buscarOponente.bind(combateController))
 
 // Gestión de combates
 router.put('/:id/aceptar', combateController.aceptarCombate.bind(combateController));
+router.put('/:id/abandonar', combateController.abandonarCombate.bind(combateController));
 router.delete('/:id/cancelar-busqueda', combateController.cancelarBusqueda.bind(combateController));
 router.delete('/:id/rechazar', combateController.rechazarCombate.bind(combateController));
 router.get('/usuario/:idUsuario', combateController.obtenerCombatesUsuario.bind(combateController));
