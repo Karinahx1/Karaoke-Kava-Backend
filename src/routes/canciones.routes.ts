@@ -10,6 +10,7 @@ router.get('/:id', cancionesController.obtenerCancionPorId.bind(cancionesControl
 
 router.post('/', cancionesController.crearCancion.bind(cancionesController));
 router.put('/:id', cancionesController.actualizarCancion.bind(cancionesController));
+router.patch('/:id/activa', cancionesController.toggleActiva.bind(cancionesController));
 router.delete('/:id', cancionesController.eliminarCancion.bind(cancionesController));
 
 export default router;

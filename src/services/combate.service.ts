@@ -34,7 +34,11 @@ export class CombateService {
 
   // 2. Buscar oponente automáticamente (Matchmaking)
   async buscarOponente(idJugador1: string, idNivel: string) {
-    // Buscar si hay alguien del mismo nivel buscando oponente
+    // Normalizar nivel: si el usuario no tiene nivel asignado (null), se trata como 1 (Principiante)
+    // El front ya hace lo mismo con `id_nivel || 1`, así que ambos lados son coherentes
+    const nivelBuscado = Number(idNivel) || 1;
+
+    // Buscar combates en espera (EN_CURSO sin jugador2)
     const { data: combatesBuscando, error: errBusqueda } = await supabase
       .from('tbl_combate')
       .select(`
@@ -47,8 +51,17 @@ export class CombateService {
 
     if (errBusqueda) throw new Error(errBusqueda.message);
 
-    // Filtrar por nivel
-    const posibles = combatesBuscando.filter(c => c.jugador1.id_nivel === idNivel);
+    console.log(`[Matchmaking] Jugador ${idJugador1} busca nivel ${nivelBuscado}. Combates en espera: ${combatesBuscando.length}`);
+
+    // Filtrar por nivel con null safety:
+    // - Si jugador1 no trajo datos del join, lo descartamos
+    // - null en id_nivel se trata como 1 (igual que el frontend)
+    const posibles = combatesBuscando.filter(c => {
+      if (!c.jugador1) return false;
+      const nivelOponente = Number(c.jugador1.id_nivel) || 1;
+      console.log(`  → Combate ${c.id}: nivel oponente = ${nivelOponente}, buscado = ${nivelBuscado}, coincide = ${nivelOponente === nivelBuscado}`);
+      return nivelOponente === nivelBuscado;
+    });
 
     if (posibles.length > 0) {
       // Elegir uno aleatoriamente
@@ -98,11 +111,14 @@ export class CombateService {
 
   // 3b. Cancelar búsqueda de matchmaking
   async cancelarBusqueda(idCombate: string) {
+    // Solo se puede cancelar si todavía no hay jugador2 (aún en cola de espera)
+    // Esto evita cancelar accidentalmente un combate que ya empezó
     const { error } = await supabase
       .from('tbl_combate')
       .delete()
       .eq('id', idCombate)
-      .eq('id_estado', ESTADO_COMBATE.EN_CURSO);
+      .eq('id_estado', ESTADO_COMBATE.EN_CURSO)
+      .is('id_usuario_jugador2', null);
 
     if (error) throw new Error(error.message);
     return { ok: true };

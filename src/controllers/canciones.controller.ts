@@ -103,6 +103,26 @@ export class CancionesController {
     }
   }
 
+  async toggleActiva(req: Request, res: Response) {
+    try {
+      const id = Number(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ ok: false, message: 'El id de la canción no es válido' });
+      }
+      const { activa } = req.body;
+      if (typeof activa !== 'boolean') {
+        return res.status(400).json({ ok: false, message: 'El campo activa debe ser true o false' });
+      }
+      const cancion = await cancionesService.toggleActiva(id, activa);
+      return res.status(200).json({ ok: true, data: cancion });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Error al cambiar estado de la canción'
+      });
+    }
+  }
+
   async eliminarCancion(req: Request, res: Response) {
     try {
       const id = Number(req.params.id);

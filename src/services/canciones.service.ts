@@ -12,9 +12,11 @@ type CancionInput = {
 export class CancionesService {
 
   async obtenerCanciones() {
+    // Solo canciones activas para el catálogo público (práctica y combates)
     const { data, error } = await supabase
       .from('tbl_cancion')
       .select('*')
+      .eq('activa', true)
       .order('id', { ascending: true });
 
     if (error) {
@@ -49,7 +51,13 @@ export class CancionesService {
   }
 
   async obtenerCancionesAdmin() {
-    const canciones = await this.obtenerCanciones();
+    // El admin ve TODAS las canciones (activas e inactivas) para poder reactivarlas
+    const { data: canciones, error } = await supabase
+      .from('tbl_cancion')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (error) throw new Error(error.message);
 
     const cancionesConRelaciones = await Promise.all(
       (canciones ?? []).map(async (cancion: any) => {
@@ -143,8 +151,21 @@ export class CancionesService {
     return cancionActualizada;
   }
 
+  // Activa o desactiva una canción sin borrarla
+  async toggleActiva(id: number, activa: boolean) {
+    const { data, error } = await supabase
+      .from('tbl_cancion')
+      .update({ activa })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  // Elimina físicamente una canción — solo si nunca fue usada
   async eliminarCancion(id: number) {
-    // Verificar si la canción tiene prácticas asociadas
     const { count: countPracticas } = await supabase
       .from('tbl_practica')
       .select('id', { count: 'exact', head: true })
@@ -152,12 +173,13 @@ export class CancionesService {
 
     if (countPracticas && countPracticas > 0) {
       throw new Error(
-        `No se puede eliminar esta canción porque ya fue usada en ${countPracticas} práctica(s). ` +
-        'Eliminar el historial de los usuarios podría afectar sus puntajes y niveles.'
+        `Esta canción forma parte del historial de ${countPracticas} práctica(s) de usuarios. ` +
+        `Borrarla eliminaría esos registros y afectaría los puntajes y niveles de quienes la cantaron. ` +
+        `Si ya no quieres que aparezca en el catálogo, usa el botón "Desactivar" — ` +
+        `así la ocultas sin perder ningún dato.`
       );
     }
 
-    // Verificar si la canción fue usada en alguna ronda de combate
     const { count: countRondas } = await supabase
       .from('tbl_rondas')
       .select('id', { count: 'exact', head: true })
@@ -165,31 +187,22 @@ export class CancionesService {
 
     if (countRondas && countRondas > 0) {
       throw new Error(
-        `No se puede eliminar esta canción porque ya fue usada en ${countRondas} combate(s). ` +
-        'Eliminarla rompería el historial de esos combates.'
+        `Esta canción fue usada en ${countRondas} ronda(s) de combate. ` +
+        `Borrarla rompería el historial de esos combates y los resultados quedarían incompletos. ` +
+        `Si ya no quieres que aparezca en el catálogo, usa el botón "Desactivar" — ` +
+        `así la ocultas sin perder ningún dato.`
       );
     }
 
-    // Seguro eliminar — borrar relaciones primero y luego la canción
     const { error: errorArtistas } = await supabase
-      .from('tbl_artista_x_cancion')
-      .delete()
-      .eq('id_cancion', id);
-
+      .from('tbl_artista_x_cancion').delete().eq('id_cancion', id);
     if (errorArtistas) throw new Error(errorArtistas.message);
 
     const { error: errorGeneros } = await supabase
-      .from('tbl_genero_musical_x_cancion')
-      .delete()
-      .eq('id_cancion', id);
-
+      .from('tbl_genero_musical_x_cancion').delete().eq('id_cancion', id);
     if (errorGeneros) throw new Error(errorGeneros.message);
 
-    const { error } = await supabase
-      .from('tbl_cancion')
-      .delete()
-      .eq('id', id);
-
+    const { error } = await supabase.from('tbl_cancion').delete().eq('id', id);
     if (error) throw new Error(error.message);
 
     return { message: 'Canción eliminada correctamente' };
